@@ -8,11 +8,11 @@ from werkzeug.serving import run_simple
 
 # --- Initialization ---
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "http://127.0.0.1:5000"}})
+CORS(app, resources={r"/*": {"origins": ["http://127.0.0.1:5000", "http://127.0.0.1:5006"]}})
 face_processor = FaceProcessor()
 
 # --- API Routes ---
-@app.route('/api/analyze_image', methods=['POST'])
+@app.route('/analyze_image', methods=['POST'])
 def api_analyze_image():
     if 'image_file' not in request.files:
         return jsonify({'error': 'No image file provided.'}), 400
@@ -27,7 +27,7 @@ def api_analyze_image():
     except Exception as e:
         return jsonify({'error': f'Server error: {e}'}), 500
 
-@app.route('/api/add_face', methods=['POST'])
+@app.route('/add_face', methods=['POST'])
 def api_add_face():
     data = request.get_json()
     name = data.get('name')
