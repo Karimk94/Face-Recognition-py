@@ -89,6 +89,7 @@ class FaceProcessor:
                         img_path=temp_img_path,
                         db_path=self.known_faces_path,
                         model_name="VGG-Face",
+                        distance_metric="euclidean_l2",
                         enforce_detection=False,
                         detector_backend='retinaface',
                         silent=True
@@ -99,10 +100,12 @@ class FaceProcessor:
                             best_match = df.iloc[0]
                             identity_path = best_match['identity']
                             name = os.path.basename(os.path.dirname(str(identity_path)))
+                            distance = best_match['distance']
                             recognized_faces.append({
                                 'name': name,
                                 'x': best_match['source_x'], 'y': best_match['source_y'],
-                                'w': best_match['source_w'], 'h': best_match['source_h']
+                                'w': best_match['source_w'], 'h': best_match['source_h'],
+                                'distance': distance
                             })
                     print(f"Recognition complete. Identified {len(recognized_faces)} known people.")
                 except Exception as e:
@@ -124,11 +127,13 @@ class FaceProcessor:
                 facial_area = detected_face['facial_area']
                 x, y, w, h = facial_area['x'], facial_area['y'], facial_area['w'], facial_area['h']
                 name = "Unknown"
+                distance = None
 
                 for rec_face in recognized_faces:
                     dist = np.sqrt(((x + w/2) - (rec_face['x'] + rec_face['w']/2))**2 + ((y + h/2) - (rec_face['y'] + rec_face['h']/2))**2)
-                    if dist < 20: 
+                    if dist < 20 and rec_face['distance'] <= 1.0:
                         name = rec_face['name']
+                        distance = rec_face['distance']
                         break
 
                 draw.rectangle(((x, y), (x + w, y + h)), outline=(0, 255, 0), width=3)
@@ -148,7 +153,7 @@ class FaceProcessor:
                 draw.text((x - 1, y - 21), label_text, font=font, fill=shadow_color)
                 draw.text((x, y - 20), label_text, font=font, fill=(0, 255, 0))
                 
-                results["faces"].append({"index": face_number, "name": name, "location": [y, x + w, y + h, x]})
+                results["faces"].append({"index": face_number, "name": name, "location": [y, x + w, y + h, x], "distance": distance})
 
             buffer = io.BytesIO()
             image_for_drawing.save(buffer, format="JPEG")
