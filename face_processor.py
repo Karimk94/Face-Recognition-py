@@ -4,6 +4,7 @@ import numpy as np
 import io
 import base64
 import os
+import random
 
 class FaceProcessor:
     """
@@ -56,7 +57,8 @@ class FaceProcessor:
         """
         Detects all faces, then separately attempts to recognize them for maximum stability.
         """
-        temp_img_path = "temp_image_for_processing.jpg"
+        random_number = random.randint(1, 999)
+        temp_img_path = f"temp_image_for_processing_{random_number}.jpg"
         try:
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             image.save(temp_img_path, "JPEG")
