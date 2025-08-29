@@ -8,7 +8,7 @@ from werkzeug.serving import run_simple
 
 # --- Initialization ---
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": ["http://127.0.0.1:5000", "http://127.0.0.1:5006","http://localhost:3000" ]}})
+CORS(app, resources={r"/*": {"origins": ["http://127.0.0.1:5000", "http://127.0.0.1:5006","http://localhost:3000","http://127.0.0.1:5008" ]}})
 face_processor = FaceProcessor()
 
 # --- API Routes ---
@@ -46,6 +46,22 @@ def api_add_face():
         return jsonify({'message': f"Saved '{name}'."})
     return jsonify({'error': 'Failed to save face.'}), 500
 
+@app.route('/recognize_faces', methods=['POST'])
+def api_recognize_faces():
+    data = request.get_json()
+    if not data or 'faces' not in data or not isinstance(data['faces'], list):
+        return jsonify({'error': 'Request must be JSON with a "faces" array.'}), 400
+    
+    base64_faces_list = data['faces']
+
+    try:
+        # Call the updated method in the face processor
+        results = face_processor.recognize_faces_from_image(base64_faces_list)
+        return jsonify({'faces': results})
+    except Exception as e:
+        print(f"ERROR in /recognize_faces: {e}")
+        return jsonify({'error': f'Server error: {e}'}), 500
+    
 if __name__ == '__main__':
     run_simple(
         '127.0.0.1',

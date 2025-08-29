@@ -5,6 +5,7 @@ import io
 import base64
 import os
 import random
+import pandas as pd
 
 class FaceProcessor:
     """
@@ -51,7 +52,6 @@ class FaceProcessor:
             raise RuntimeError(error_message)
 
         print("✅ All models are available locally. Offline mode is ready.")
-
 
     def process_image(self, image_bytes):
         """
@@ -191,3 +191,50 @@ class FaceProcessor:
         except Exception as e:
             print(f"Error saving new face: {e}")
             return False
+        
+    def recognize_faces_from_image(self, base64_faces_list):
+        """
+        Recognizes a list of pre-cropped faces provided as base64 strings.
+        This is more reliable as it avoids re-detecting from a composite image.
+        """
+        final_results = []
+        db_is_populated = os.path.exists(self.known_faces_path) and len(os.listdir(self.known_faces_path)) > 0
+
+        # Iterate through each base64 string in the input list
+        for i, b64_face_string in enumerate(base64_faces_list):
+            name = "Unknown"
+            try:
+                # Decode the base64 string into an image that DeepFace can use
+                image_bytes = base64.b64decode(b64_face_string)
+                img = Image.open(io.BytesIO(image_bytes))
+                img_np = np.array(img)
+
+                if db_is_populated:
+                    # Use DeepFace.find to recognize the single pre-cropped face.
+                    # enforce_detection=False is key here, as the face is already cropped.
+                    dfs = DeepFace.find(
+                        img_path=img_np,
+                        db_path=self.known_faces_path,
+                        model_name="VGG-Face",
+                        distance_metric="euclidean_l2",
+                        enforce_detection=False,
+                        silent=True
+                    )
+                    
+                    # Check if any match was found in the database
+                    if dfs and not dfs[0].empty:
+                        best_match = dfs[0].iloc[0]
+                        # Use a threshold to avoid poor matches
+                        if best_match['distance'] <= 1.0:
+                            identity_path = best_match['identity']
+                            name = os.path.basename(os.path.dirname(str(identity_path)))
+            except Exception as e:
+                print(f"Could not process face at index {i}. Error: {e}")
+                name = "Unknown"
+            
+            final_results.append({
+                "index": i + 1,  # The index is now guaranteed to be correct
+                "name": name
+            })
+        
+        return final_results
