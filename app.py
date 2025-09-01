@@ -8,7 +8,8 @@ from werkzeug.serving import run_simple
 
 # --- Initialization ---
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": ["http://127.0.0.1:5000", "http://127.0.0.1:5006","http://localhost:3000","http://127.0.0.1:5008", "http://192.168.146.198:5008" ]}})
+# Allow any origin
+CORS(app, resources={r"/*": {"origins": "*"}})
 face_processor = FaceProcessor()
 
 # --- API Routes ---
