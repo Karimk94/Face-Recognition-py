@@ -40,6 +40,9 @@ def api_add_face():
     image = Image.open(io.BytesIO(image_bytes))
     top, right, bottom, left = location
     cropped_face = image.crop((left, top, right, bottom))
+    
+    cropped_face = cropped_face.convert('RGB')
+    
     buf = io.BytesIO()
     cropped_face.save(buf, format='JPEG')
     success = face_processor.add_new_face(name, buf.getvalue())
