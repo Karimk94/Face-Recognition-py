@@ -12,7 +12,6 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 face_processor = FaceProcessor()
 
-# --- API Routes ---
 @app.route('/analyze_image', methods=['POST'])
 def api_analyze_image():
     if 'image_file' not in request.files:
@@ -65,7 +64,26 @@ def api_recognize_faces():
     except Exception as e:
         print(f"ERROR in /recognize_faces: {e}")
         return jsonify({'error': f'Server error: {e}'}), 500
-    
+
+@app.route('/analyze_image_stream', methods=['POST'])
+def analyze_image_stream():
+    """
+    New endpoint to process a single image sent as a raw byte stream.
+    """
+    try:
+        image_bytes = request.get_data()
+        if not image_bytes:
+            return jsonify(error="No image data in request body"), 400
+        
+        results = face_processor.process_image(image_bytes)
+        
+        if results:
+            results['original_image_b64'] = base64.b64encode(image_bytes).decode('utf-8')
+            return jsonify(results)
+        return jsonify({'error': 'Analysis returned no results.'}), 500
+    except Exception as e:
+        return jsonify({'error': f'Server error: {e}'}), 500
+
 if __name__ == '__main__':
     run_simple(
         '127.0.0.1',
@@ -74,5 +92,5 @@ if __name__ == '__main__':
         use_reloader=False,
         use_debugger=True,
         threaded=True,
-        exclude_patterns=['*known_faces_db*', '*__pycache__*']
+        exclude_patterns=['*known_faces_db*', '*__pycache__*', '*venv*']
     )
