@@ -5,6 +5,7 @@ from PIL import Image
 import io
 from face_processor import FaceProcessor
 from werkzeug.serving import run_simple
+from waitress import serve
 
 # --- Initialization ---
 app = Flask(__name__)
@@ -85,12 +86,4 @@ def analyze_image_stream():
         return jsonify({'error': f'Server error: {e}'}), 500
 
 if __name__ == '__main__':
-    run_simple(
-        '127.0.0.1',
-        5002,
-        app,
-        use_reloader=False,
-        use_debugger=True,
-        threaded=True,
-        exclude_patterns=['*known_faces_db*', '*__pycache__*', '*venv*']
-    )
+    serve(app, host='127.0.0.1', port=5002, threads=100)
