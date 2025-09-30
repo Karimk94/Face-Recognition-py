@@ -3,6 +3,8 @@ import requests
 from tqdm import tqdm
 import time
 
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
 def download_file_robustly(url, local_path):
     """
     Downloads a file with a progress bar, supports resuming, and verifies the final size.
@@ -59,12 +61,13 @@ def download_file_robustly(url, local_path):
 
 def setup_offline_models():
     """
-    Ensures all necessary AI models are downloaded for offline use.
+    Ensures all necessary AI models are downloaded directly into the project's 'models' folder for offline use.
     """
     print("--- Setting up models for offline use ---")
-    home = os.path.expanduser("~")
-    weights_path = os.path.join(home, '.deepface', 'weights')
-    os.makedirs(weights_path, exist_ok=True)
+    
+    models_path = os.path.join(PROJECT_ROOT, 'models')
+    os.makedirs(models_path, exist_ok=True)
+    print(f"Models will be saved to: {models_path}")
 
     models = {
         "vgg_face_weights.h5": "https://github.com/serengil/deepface_models/releases/download/v1.0/vgg_face_weights.h5",
@@ -73,7 +76,8 @@ def setup_offline_models():
 
     all_successful = True
     for filename, url in models.items():
-        local_path = os.path.join(weights_path, filename)
+        # The local path is now inside the project's 'models' folder
+        local_path = os.path.join(models_path, filename)
         if not download_file_robustly(url, local_path):
             all_successful = False
 

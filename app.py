@@ -4,16 +4,16 @@ import base64
 from PIL import Image
 import io
 from face_processor import FaceProcessor
-from werkzeug.serving import run_simple
 from waitress import serve
+import os
 
 # --- Initialization ---
 app = Flask(__name__)
-# Allow any origin
+# Allow any origin for maximum flexibility
 CORS(app, resources={r"/*": {"origins": "*"}})
 face_processor = FaceProcessor()
 
-@app.route('/analyze_image', methods=['POST'])
+@app.route('/api/analyze_image', methods=['POST'])
 def api_analyze_image():
     if 'image_file' not in request.files:
         return jsonify({'error': 'No image file provided.'}), 400
@@ -26,31 +26,38 @@ def api_analyze_image():
             return jsonify(results)
         return jsonify({'error': 'Analysis returned no results.'}), 500
     except Exception as e:
-        return jsonify({'error': f'Server error: {e}'}), 500
+        # It's good practice to log the full exception for debugging
+        app.logger.error(f"Error in /analyze_image: {e}", exc_info=True)
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
-@app.route('/add_face', methods=['POST'])
+@app.route('/api/add_face', methods=['POST'])
 def api_add_face():
     data = request.get_json()
     name = data.get('name')
     location = data.get('location')
     original_image_b64 = data.get('original_image_b64')
     if not all([name, location, original_image_b64]):
-        return jsonify({'error': 'Missing data.'}), 400
-    image_bytes = base64.b64decode(original_image_b64)
-    image = Image.open(io.BytesIO(image_bytes))
-    top, right, bottom, left = location
-    cropped_face = image.crop((left, top, right, bottom))
-    
-    cropped_face = cropped_face.convert('RGB')
-    
-    buf = io.BytesIO()
-    cropped_face.save(buf, format='JPEG')
-    success = face_processor.add_new_face(name, buf.getvalue())
-    if success:
-        return jsonify({'message': f"Saved '{name}'."})
-    return jsonify({'error': 'Failed to save face.'}), 500
+        return jsonify({'error': 'Missing data (name, location, original_image_b64 required).'}), 400
+    try:
+        image_bytes = base64.b64decode(original_image_b64)
+        image = Image.open(io.BytesIO(image_bytes))
+        top, right, bottom, left = location
+        cropped_face = image.crop((left, top, right, bottom))
+        
+        cropped_face = cropped_face.convert('RGB')
+        
+        buf = io.BytesIO()
+        cropped_face.save(buf, format='JPEG')
+        success = face_processor.add_new_face(name, buf.getvalue())
+        if success:
+            return jsonify({'message': f"Saved '{name}' successfully."})
+        return jsonify({'error': 'Failed to save face.'}), 500
+    except Exception as e:
+        app.logger.error(f"Error in /add_face: {e}", exc_info=True)
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
-@app.route('/recognize_faces', methods=['POST'])
+
+@app.route('/api/recognize_faces', methods=['POST'])
 def api_recognize_faces():
     data = request.get_json()
     if not data or 'faces' not in data or not isinstance(data['faces'], list):
@@ -59,18 +66,15 @@ def api_recognize_faces():
     base64_faces_list = data['faces']
 
     try:
-        # Call the updated method in the face processor
         results = face_processor.recognize_faces_from_image(base64_faces_list)
         return jsonify({'faces': results})
     except Exception as e:
-        print(f"ERROR in /recognize_faces: {e}")
-        return jsonify({'error': f'Server error: {e}'}), 500
+        app.logger.error(f"Error in /recognize_faces: {e}", exc_info=True)
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
-@app.route('/analyze_image_stream', methods=['POST'])
+@app.route('/api/analyze_image_stream', methods=['POST'])
 def analyze_image_stream():
-    """
-    New endpoint to process a single image sent as a raw byte stream.
-    """
+    """Endpoint to process a single image sent as a raw byte stream."""
     try:
         image_bytes = request.get_data()
         if not image_bytes:
@@ -83,7 +87,10 @@ def analyze_image_stream():
             return jsonify(results)
         return jsonify({'error': 'Analysis returned no results.'}), 500
     except Exception as e:
-        return jsonify({'error': f'Server error: {e}'}), 500
+        app.logger.error(f"Error in /analyze_image_stream: {e}", exc_info=True)
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
+# --- MAIN EXECUTION BLOCK ---
 if __name__ == '__main__':
-    serve(app, host='127.0.0.1', port=5002, threads=100)
+    port = os.environ.get('HTTP_PLATFORM_PORT', 809)
+    serve(app, host='localhost', port=port, threads=100)

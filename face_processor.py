@@ -1,92 +1,86 @@
 from deepface import DeepFace
+from deepface.commons import folder_utils
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import io
 import base64
 import os
+import shutil
+import time
 import random
-import pandas as pd
 
 class FaceProcessor:
     """
     Handles face detection and recognition using a robust, explicitly offline process.
-    This version separates detection and recognition for maximum stability.
+    This version ensures the deepface cache is populated before loading models.
     """
     def __init__(self, known_faces_path="known_faces_db"):
-        self.known_faces_path = known_faces_path
+        self.known_faces_path = os.path.abspath(known_faces_path)
         os.makedirs(self.known_faces_path, exist_ok=True)
-        self._verify_models_are_local()
+        self._initialize_offline_models()
 
-    def _verify_models_are_local(self):
+    def _initialize_offline_models(self):
         """
-        Checks if the necessary model files exist locally and are valid. If not,
-        raises an exception to prevent the app from starting.
+        The definitive offline solution: Manually copies model files to the
+        deepface cache location before telling deepface to build the model.
+        This prevents any automatic download attempts.
         """
-        print("Verifying that AI models are available locally for offline use...")
-        home = os.path.expanduser("~")
-        weights_path = os.path.join(home, '.deepface', 'weights')
-        
-        vgg_face_model_path = os.path.join(weights_path, 'vgg_face_weights.h5')
-        retinaface_model_path = os.path.join(weights_path, 'retinaface.h5')
+        print("Initializing offline models...")
 
-        if not os.path.exists(vgg_face_model_path) or not os.path.exists(retinaface_model_path):
-            error_message = (
-                "CRITICAL ERROR: One or more model files are missing. "
-                "Please run the 'setup.bat' script with an active internet connection."
-            )
-            raise RuntimeError(error_message)
+        # This path is determined by the DEEPFACE_HOME environment variable set in web.config
+        deepface_cache_path = folder_utils.get_deepface_home()
+        weights_path = os.path.join(deepface_cache_path, 'weights')
+        os.makedirs(weights_path, exist_ok=True)
+
+        local_model_source_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "models"))
         
+        required_models = ["vgg_face_weights.h5", "retinaface.h5"]
+
+        for model_file in required_models:
+            source_path = os.path.join(local_model_source_dir, model_file)
+            dest_path = os.path.join(weights_path, model_file)
+
+            if not os.path.exists(dest_path):
+                print(f"Model '{model_file}' not found in cache. Copying from local source...")
+                if not os.path.exists(source_path):
+                    raise RuntimeError(f"CRITICAL ERROR: Source model file not found at '{source_path}'.")
+                
+                try:
+                    # Pre-populate the deepface cache with our local model file
+                    shutil.copy(source_path, dest_path)
+                    print(f"Successfully copied '{model_file}' to cache.")
+                except Exception as e:
+                    raise RuntimeError(f"CRITICAL PERMISSION ERROR: Failed to copy model file from '{source_path}' to '{dest_path}'. Ensure the IIS user has 'Modify' permissions on the application folder. Error: {e}")
+
         try:
-            print("Attempting to load VGG-Face model to verify integrity...")
+            # Now that the cache is guaranteed to be populated, build the model.
+            # DeepFace will find the local files and will not attempt to download.
+            print("Attempting to build VGG-Face model from pre-populated cache...")
             DeepFace.build_model("VGG-Face")
-            print("VGG-Face model loaded successfully.")
-        except Exception as e:
-            # This will catch errors from a corrupt file
-            error_message = (
-                f"CRITICAL ERROR: The model file 'vgg_face_weights.h5' is corrupt. Error: {e}\n"
-                "Please follow these steps:\n"
-                f"1. Go to this folder: {weights_path}\n"
-                "2. Delete the file 'vgg_face_weights.h5'.\n"
-                "3. Run the 'setup.bat' script again to re-download the file."
-            )
-            raise RuntimeError(error_message)
 
-        print("✅ All models are available locally. Offline mode is ready.")
+        except Exception as e:
+            raise RuntimeError(f"CRITICAL ERROR: DeepFace failed to build the model even with a pre-populated cache. Error: {e}")
 
     def process_image(self, image_bytes):
         """
         Detects all faces, then separately attempts to recognize them for maximum stability.
         """
-        random_number = random.randint(1, 999)
-        temp_img_path = f"temp_image_for_processing_{random_number}.jpg"
+        # Using an absolute path for the temp image to avoid any ambiguity
+        temp_img_path = os.path.join(os.path.dirname(__file__), f"temp_image_{random.randint(1,999)}.jpg")
         try:
             image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             image.save(temp_img_path, "JPEG")
 
-            # --- Step 1: Detect ALL faces in the image ---
-            print("Step 1: Detecting all faces in the image...")
-            all_detected_faces = []
-            try:
-                all_detected_faces = DeepFace.extract_faces(
-                    img_path=temp_img_path,
-                    enforce_detection=False,
-                    detector_backend='retinaface'
-                )
-            except Exception as e:
-                print(f"🚨 'retinaface' backend failed: {e}. Trying fallback 'opencv' backend...")
-                all_detected_faces = DeepFace.extract_faces(
-                    img_path=temp_img_path,
-                    enforce_detection=False,
-                    detector_backend='opencv'
-                )
-            print(f"Detection complete. Found {len(all_detected_faces)} faces.")
+            all_detected_faces = DeepFace.extract_faces(
+                img_path=temp_img_path,
+                enforce_detection=False,
+                detector_backend='retinaface'
+            )
 
-            # --- Step 2: Recognize known faces in the image (one single API call) ---
             recognized_faces = []
             db_is_populated = os.path.exists(self.known_faces_path) and len(os.listdir(self.known_faces_path)) > 0
-            if db_is_populated:
+            if db_is_populated and all_detected_faces:
                 try:
-                    print("Step 2: Recognizing known faces against the database...")
                     recognized_faces_dfs = DeepFace.find(
                         img_path=temp_img_path,
                         db_path=self.known_faces_path,
@@ -109,18 +103,14 @@ class FaceProcessor:
                                 'w': best_match['source_w'], 'h': best_match['source_h'],
                                 'distance': distance
                             })
-                    print(f"Recognition complete. Identified {len(recognized_faces)} known people.")
                 except Exception as e:
-                    print(f"Recognition step failed, will label all faces as Unknown. Error: {e}")
+                    print(f"Recognition step failed: {e}")
 
-            # --- Step 3: Correlate detections with recognitions and draw results ---
-            print("Step 3: Correlating results and drawing image...")
             image_for_drawing = Image.open(temp_img_path)
             draw = ImageDraw.Draw(image_for_drawing)
             results = {"faces": []}
 
             if not all_detected_faces or all_detected_faces[0]['facial_area']['w'] == 0:
-                os.remove(temp_img_path)
                 img_str = base64.b64encode(image_bytes).decode("utf-8")
                 results["processed_image"] = img_str
                 return results
@@ -139,7 +129,6 @@ class FaceProcessor:
                         break
 
                 draw.rectangle(((x, y), (x + w, y + h)), outline=(0, 255, 0), width=3)
-                
                 face_number = i + 1
                 label_text = f"#{face_number}: {name.replace('_', ' ').title()}"
                 
@@ -147,12 +136,7 @@ class FaceProcessor:
                     font = ImageFont.truetype("arial.ttf", 15)
                 except IOError:
                     font = ImageFont.load_default()
-
-                shadow_color = 'black'
-                draw.text((x + 1, y - 21), label_text, font=font, fill=shadow_color)
-                draw.text((x - 1, y - 19), label_text, font=font, fill=shadow_color)
-                draw.text((x + 1, y - 19), label_text, font=font, fill=shadow_color)
-                draw.text((x - 1, y - 21), label_text, font=font, fill=shadow_color)
+                
                 draw.text((x, y - 20), label_text, font=font, fill=(0, 255, 0))
                 
                 results["faces"].append({"index": face_number, "name": name, "location": [y, x + w, y + h, x], "distance": distance})
@@ -161,14 +145,11 @@ class FaceProcessor:
             image_for_drawing.save(buffer, format="JPEG")
             results["processed_image"] = base64.b64encode(buffer.getvalue()).decode("utf-8")
             
-            os.remove(temp_img_path)
             return results
 
-        except Exception as e:
-            print(f"A critical error occurred during face processing: {e}")
+        finally:
             if os.path.exists(temp_img_path):
                 os.remove(temp_img_path)
-            raise e
 
     def add_new_face(self, name, cropped_face_bytes):
         """Saves a new person's face image to the known faces database directory."""
@@ -189,29 +170,23 @@ class FaceProcessor:
 
             return True
         except Exception as e:
-            print(f"Error saving new face: {e}")
             return False
         
     def recognize_faces_from_image(self, base64_faces_list):
         """
         Recognizes a list of pre-cropped faces provided as base64 strings.
-        This is more reliable as it avoids re-detecting from a composite image.
         """
         final_results = []
         db_is_populated = os.path.exists(self.known_faces_path) and len(os.listdir(self.known_faces_path)) > 0
 
-        # Iterate through each base64 string in the input list
         for i, b64_face_string in enumerate(base64_faces_list):
             name = "Unknown"
             try:
-                # Decode the base64 string into an image that DeepFace can use
                 image_bytes = base64.b64decode(b64_face_string)
                 img = Image.open(io.BytesIO(image_bytes))
                 img_np = np.array(img)
 
                 if db_is_populated:
-                    # Use DeepFace.find to recognize the single pre-cropped face.
-                    # enforce_detection=False is key here, as the face is already cropped.
                     dfs = DeepFace.find(
                         img_path=img_np,
                         db_path=self.known_faces_path,
@@ -221,19 +196,16 @@ class FaceProcessor:
                         silent=True
                     )
                     
-                    # Check if any match was found in the database
                     if dfs and not dfs[0].empty:
                         best_match = dfs[0].iloc[0]
-                        # Use a threshold to avoid poor matches
                         if best_match['distance'] <= 1.0:
                             identity_path = best_match['identity']
                             name = os.path.basename(os.path.dirname(str(identity_path)))
             except Exception as e:
-                print(f"Could not process face at index {i}. Error: {e}")
                 name = "Unknown"
             
             final_results.append({
-                "index": i + 1,  # The index is now guaranteed to be correct
+                "index": i + 1,
                 "name": name
             })
         

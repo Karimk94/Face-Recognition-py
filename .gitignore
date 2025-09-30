@@ -13,6 +13,7 @@ __pycache__/
 # The known_faces_db contains user-specific data and can become very large.
 # It should be created on each machine that runs the service.
 known_faces_db/
+packages/
 
 # Environment files
 # This file contains sensitive credentials and should NEVER be committed.
@@ -29,3 +30,6 @@ temp_*.jpg
 # Log files
 # Ignore any log files that might be generated.
 *.log
+app.py
+models/vgg_face_weights.h5
+models/retinaface.h5
