@@ -92,5 +92,5 @@ def analyze_image_stream():
 
 # --- MAIN EXECUTION BLOCK ---
 if __name__ == '__main__':
-    port = os.environ.get('HTTP_PLATFORM_PORT', 809)
+    port = os.environ.get('HTTP_PLATFORM_PORT', 5002)
     serve(app, host='localhost', port=port, threads=100)
