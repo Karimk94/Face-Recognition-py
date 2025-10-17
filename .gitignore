@@ -12,7 +12,7 @@ __pycache__/
 # Local Data and Databases
 # The known_faces_db contains user-specific data and can become very large.
 # It should be created on each machine that runs the service.
-known_faces_db/
+# known_faces_db/
 packages/
 
 # Environment files
