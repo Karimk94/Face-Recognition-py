@@ -69,9 +69,8 @@ Add the Configuration:
 Copy and paste the following configuration into the file. Make sure to replace /path/to/your/face-recognition-py with the actual absolute path to your project directory.
 
 [program:face-recognition-py]
-command=/path/to/your/face-recognition-py/venv/bin/gunicorn -w 4 -b 127.0.0.1:8001 app:app
-directory=/path/to/your/face-recognition-py
-user=your_macos_username
+command=/Users/okool_arfelous/Developer/Face-Recognition-py/venv/bin/gunicorn -w 4 -b 127.0.0.1:8001 app:app
+directory=/Users/okool_arfelous/Developer/Face-Recognition-py
 autostart=true
 autorestart=true
 stderr_logfile=/var/log/face-recognition-py.err.log
