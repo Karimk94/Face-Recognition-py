@@ -15,6 +15,7 @@ __pycache__/
 known_faces_db/
 logs/
 packages/
+weights/
 
 # Environment files
 # This file contains sensitive credentials and should NEVER be committed.
@@ -23,6 +24,7 @@ packages/
 # Temporary files
 # Ignore any temporary image files created during processing.
 temp_*.jpg
+# known_faces_db.zip
 
 # IDE and editor configuration files
 .vscode/
