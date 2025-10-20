@@ -21,7 +21,19 @@ def api_analyze_image():
     image_bytes = file.read()
     try:
         results = face_processor.process_image(image_bytes)
-        if results:
+        if results and 'faces' in results:
+            image = Image.open(io.BytesIO(image_bytes))
+            for face in results['faces']:
+                top, right, bottom, left = face['location']
+                cropped_face = image.crop((left, top, right, bottom))
+                
+                if cropped_face.mode != 'RGB':
+                    cropped_face = cropped_face.convert('RGB')
+
+                buf = io.BytesIO()
+                cropped_face.save(buf, format='JPEG')
+                face['thumbnail_b64'] = base64.b64encode(buf.getvalue()).decode('utf-8')
+
             results['original_image_b64'] = base64.b64encode(image_bytes).decode('utf-8')
             return jsonify(results)
         return jsonify({'error': 'Analysis returned no results.'}), 500
@@ -82,7 +94,19 @@ def analyze_image_stream():
         
         results = face_processor.process_image(image_bytes)
         
-        if results:
+        if results and 'faces' in results:
+            image = Image.open(io.BytesIO(image_bytes))
+            for face in results['faces']:
+                top, right, bottom, left = face['location']
+                cropped_face = image.crop((left, top, right, bottom))
+
+                if cropped_face.mode != 'RGB':
+                    cropped_face = cropped_face.convert('RGB')
+                
+                buf = io.BytesIO()
+                cropped_face.save(buf, format='JPEG')
+                face['thumbnail_b64'] = base64.b64encode(buf.getvalue()).decode('utf-8')
+                
             results['original_image_b64'] = base64.b64encode(image_bytes).decode('utf-8')
             return jsonify(results)
         return jsonify({'error': 'Analysis returned no results.'}), 500
