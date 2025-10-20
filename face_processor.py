@@ -123,7 +123,7 @@ class FaceProcessor:
 
                 for rec_face in recognized_faces:
                     dist = np.sqrt(((x + w/2) - (rec_face['x'] + rec_face['w']/2))**2 + ((y + h/2) - (rec_face['y'] + rec_face['h']/2))**2)
-                    if dist < 20 and rec_face['distance'] <= 1.0:
+                    if dist < 20 and rec_face['distance'] <= 0.9:
                         name = rec_face['name']
                         distance = rec_face['distance']
                         break
