@@ -68,7 +68,6 @@ def api_add_face():
         app.logger.error(f"Error in /add_face: {e}", exc_info=True)
         return jsonify({'error': f'Server error: {str(e)}'}), 500
 
-
 @app.route('/api/recognize_faces', methods=['POST'])
 def api_recognize_faces():
     data = request.get_json()
