@@ -23,7 +23,12 @@ import base64
 import io
 import os
 import requests as http_client
+import uuid
+import chromadb
 from waitress import serve
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -33,12 +38,22 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 DATAIKU_API_URL = os.environ.get("DATAIKU_MODEL_API_URL", "http://localhost:5003")
-KNOWN_FACES_PATH = os.path.abspath(
-    os.environ.get("KNOWN_FACES_PATH", "known_faces_db")
-)
-os.makedirs(KNOWN_FACES_PATH, exist_ok=True)
-
 REQUEST_TIMEOUT = int(os.environ.get("DATAIKU_TIMEOUT_SECONDS", 300))
+
+# ---------------------------------------------------------------------------
+# Vector Database (ChromaDB) Setup
+# ---------------------------------------------------------------------------
+
+CHROMADB_PATH = os.path.join(os.path.dirname(__file__), "chroma_db")
+chroma_client = chromadb.PersistentClient(path=CHROMADB_PATH)
+try:
+    collection = chroma_client.get_or_create_collection(
+        name="faces",
+        metadata={"hnsw:space": "l2"} # DeepFace VGG-Face works well with L2 (euclidean) or cosine
+    )
+except Exception as e:
+    app.logger.error(f"Failed to load chroma collection: {e}")
+
 
 
 # ---------------------------------------------------------------------------
@@ -97,13 +112,36 @@ def process_image_via_dataiku(image_bytes):
         cropped.save(buf, format="JPEG")
         crops_b64.append(base64.b64encode(buf.getvalue()).decode("utf-8"))
 
-    # ---- Step 3: Recognize faces via Dataiku ------------------------------
-    try:
-        recognition = call_dataiku("/recognize_faces", {"faces": crops_b64})
-        recognized = recognition.get("faces", [])
-    except Exception as e:
-        app.logger.error(f"Recognition step failed: {e}", exc_info=True)
-        recognized = []
+    # ---- Step 3: Compute Embeddings & Recognize via ChromaDB ----------------
+    recognized = []
+    if crops_b64:
+        try:
+            # 1. Get raw embeddings from Dataiku compute node
+            response = call_dataiku("/get_embeddings", {"faces": crops_b64})
+            embeddings = response.get("embeddings", [])
+            
+            # 2. Query local ChromaDB vector store
+            for i, emb in enumerate(embeddings):
+                if emb is None:
+                    recognized.append({"name": "Unknown", "distance": None})
+                    continue
+                
+                query_results = collection.query(
+                    query_embeddings=[emb],
+                    n_results=1
+                )
+                
+                if query_results and query_results['ids'] and len(query_results['ids'][0]) > 0:
+                    distance = query_results['distances'][0][0]
+                    metadata = query_results['metadatas'][0][0]
+                    name = metadata.get("name", "Unknown")
+                    recognized.append({"name": name, "distance": distance})
+                else:
+                    recognized.append({"name": "Unknown", "distance": None})
+                    
+        except Exception as e:
+            app.logger.error(f"Recognition step failed: {e}", exc_info=True)
+
 
     # ---- Step 4: Draw bounding boxes and merge results --------------------
     draw_image = image.copy()
@@ -206,27 +244,29 @@ def api_add_face():
         top, right, bottom, left = location
         cropped_face = image.crop((left, top, right, bottom)).convert("RGB")
 
-        # ---- Save face image locally -------------------------------------
-        person_folder_name = name.replace(" ", "_").lower()
-        person_path = os.path.join(KNOWN_FACES_PATH, person_folder_name)
-        os.makedirs(person_path, exist_ok=True)
-        file_count = len(os.listdir(person_path)) + 1
-        face_path = os.path.join(person_path, f"face_{file_count}.jpg")
-        cropped_face.save(face_path, "JPEG")
-
-        # ---- Send to Dataiku for embedding enrollment --------------------
+        # ---- Send to Dataiku for embedding compute -----------------------
         buf = io.BytesIO()
         cropped_face.save(buf, format="JPEG")
         face_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
         try:
-            call_dataiku("/enroll_face", {"name": name, "face_b64": face_b64})
+            response = call_dataiku("/get_embeddings", {"faces": [face_b64]})
+            embeddings = response.get("embeddings", [])
+            
+            if embeddings and embeddings[0]:
+                face_id = str(uuid.uuid4())
+                collection.add(
+                    embeddings=[embeddings[0]],
+                    metadatas=[{"name": name.replace(" ", "_").lower()}],
+                    ids=[face_id]
+                )
+            else:
+                app.logger.error("Dataiku did not return a valid embedding.")
         except Exception as e:
             app.logger.error(
-                f"Warning: Saved face locally but Dataiku enrollment failed: {e}",
+                f"Warning: Saved face locally but ChromaDB insert failed: {e}",
                 exc_info=True,
             )
-            # Face is saved locally — Dataiku can be synced later via migration script
 
         return jsonify({"message": f"Saved '{name}' successfully."})
 
@@ -238,7 +278,7 @@ def api_add_face():
 @app.route("/api/recognize_faces", methods=["POST"])
 def api_recognize_faces():
     """
-    Recognize pre-cropped faces.  Forwards the request directly to Dataiku.
+    Recognize pre-cropped faces.
     """
     data = request.get_json()
     if not data or "faces" not in data or not isinstance(data["faces"], list):
@@ -247,10 +287,67 @@ def api_recognize_faces():
         }), 400
 
     try:
-        result = call_dataiku("/recognize_faces", {"faces": data["faces"]})
-        return jsonify(result)
+        response = call_dataiku("/get_embeddings", {"faces": data["faces"]})
+        embeddings = response.get("embeddings", [])
+        
+        results = []
+        for i, emb in enumerate(embeddings):
+            if emb is None:
+                results.append({"index": i + 1, "name": "Unknown", "distance": None})
+                continue
+                
+            query_results = collection.query(
+                query_embeddings=[emb],
+                n_results=1
+            )
+            
+            if query_results and query_results['ids'] and len(query_results['ids'][0]) > 0:
+                distance = query_results['distances'][0][0]
+                metadata = query_results['metadatas'][0][0]
+                name = metadata.get("name", "Unknown")
+                results.append({"index": i + 1, "name": name, "distance": distance})
+            else:
+                results.append({"index": i + 1, "name": "Unknown", "distance": None})
+                
+        return jsonify({"faces": results})
     except Exception as e:
         app.logger.error(f"Error in /recognize_faces: {e}", exc_info=True)
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+@app.route("/api/delete_face", methods=["POST"])
+def api_delete_face():
+    """Delete all embeddings and images for a person."""
+    data = request.get_json()
+    name = data.get("name")
+    if not name:
+        return jsonify({"error": "Missing 'name'."}), 400
+
+    try:
+        formatted_name = name.replace(" ", "_").lower()
+        
+        # Delete from ChromaDB
+        collection.delete(where={"name": formatted_name})
+
+        return jsonify({"success": True, "message": f"Deleted '{name}' successfully."})
+    except Exception as e:
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+
+@app.route("/api/list_faces", methods=["GET"])
+def api_list_faces():
+    """List all enrolled people and their embedding counts."""
+    try:
+        results = collection.get(include=["metadatas"])
+        metadatas = results.get("metadatas", [])
+        
+        counts = {}
+        for meta in metadatas:
+            name = meta.get("name", "Unknown")
+            counts[name] = counts.get(name, 0) + 1
+            
+        return jsonify({"faces": counts})
+    except Exception as e:
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
@@ -262,5 +359,4 @@ if __name__ == "__main__":
     port = os.environ.get("HTTP_PLATFORM_PORT", 5002)
     print(f"Starting Thumbnail API on port {port}...")
     print(f"  Dataiku Model API URL: {DATAIKU_API_URL}")
-    print(f"  Known faces path:      {KNOWN_FACES_PATH}")
     serve(app, host="0.0.0.0", port=int(port), threads=100)
