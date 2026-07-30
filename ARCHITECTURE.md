@@ -11,7 +11,7 @@ locally. All ML inference is delegated to the Dataiku Model API via HTTP.
 ```mermaid
 graph LR
     FE["Frontend<br/>(Smart EDMS POC)"] -->|"same endpoints<br/>as before"| TH["Thumbnail API<br/>(This Server · port 5002)"]
-    TH -->|"Base64 images<br/>in JSON"| DK["Model API<br/>(Dataiku · port 5009)"]
+    TH -->|"Base64 images<br/>in JSON"| DK["Model API<br/>(Dataiku · rtauevaidss1.rtatestdom.local:13000)"]
     
     subgraph "This Server"
         TH --- DB["known_faces_db/<br/>(face images on disk)"]
@@ -208,7 +208,8 @@ Face Recognition py/
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HTTP_PLATFORM_PORT` | `5002` | Port to serve on |
-| `DATAIKU_MODEL_API_URL` | `http://localhost:5009` | URL of the Dataiku Model API |
+| `DATAIKU_MODEL_API_URL` | `https://rtauevaidss1.rtatestdom.local:13000` | URL of the Dataiku Model API |
+| `DATAIKU_VERIFY_SSL` | `true` (`false` in `.env`/`web.config`) | Set to `false` for the internal self-signed cert |
 | `KNOWN_FACES_PATH` | `./known_faces_db` | Directory for face image storage |
 | `DATAIKU_TIMEOUT_SECONDS` | `300` | Timeout for Dataiku API calls (seconds) |
 
@@ -225,7 +226,7 @@ pip install -r requirements.txt
 ### 2. Configure Dataiku URL
 
 ```bash
-set DATAIKU_MODEL_API_URL=http://your-dataiku-host:5009
+set DATAIKU_MODEL_API_URL=https://rtauevaidss1.rtatestdom.local:13000
 ```
 
 ### 3. Run One-Time Embedding Migration

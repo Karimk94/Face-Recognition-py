@@ -10,8 +10,8 @@ vector in the local ChromaDB database.
 
 Usage::
 
-    # Set the Dataiku URL if not on localhost:5009
-    set DATAIKU_MODEL_API_URL=http://your-dataiku-host:5009
+    # Set the Dataiku URL if needed (defaults to .env value)
+    set DATAIKU_MODEL_API_URL=https://rtauevaidss1.rtatestdom.local:13000
 
     python migrate_embeddings.py
 """
@@ -19,14 +19,16 @@ Usage::
 import os
 import sys
 import base64
-import requests
 import uuid
 import chromadb
 from dotenv import load_dotenv
 
 load_dotenv()
 
-DATAIKU_API_URL = os.environ.get("DATAIKU_MODEL_API_URL", "http://localhost:5003")
+# Shared helper: handles the Dataiku envelope + normalisation, and honours
+# DATAIKU_MODEL_API_URL / DATAIKU_VERIFY_SSL / DATAIKU_TIMEOUT_SECONDS.
+from app.services.dataiku import get_face_embeddings
+
 KNOWN_FACES_PATH = os.path.abspath(
     os.environ.get("KNOWN_FACES_PATH", "known_faces_db")
 )
@@ -38,16 +40,6 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 def migrate():
     if not os.path.exists(KNOWN_FACES_PATH):
         print(f"ERROR: '{KNOWN_FACES_PATH}' does not exist.")
-        sys.exit(1)
-
-    # Quick health check
-    try:
-        resp = requests.get(f"{DATAIKU_API_URL.rstrip('/')}/health", timeout=10)
-        resp.raise_for_status()
-        health = resp.json()
-        print(f"Dataiku Model API is healthy: {health}")
-    except Exception as e:
-        print(f"ERROR: Cannot reach Dataiku Model API at {DATAIKU_API_URL}: {e}")
         sys.exit(1)
 
     print(f"\nInitializing ChromaDB at '{CHROMADB_PATH}'...")
@@ -81,13 +73,7 @@ def migrate():
                 with open(face_path, "rb") as f:
                     face_b64 = base64.b64encode(f.read()).decode("utf-8")
 
-                resp = requests.post(
-                    f"{DATAIKU_API_URL.rstrip('/')}/get_embeddings",
-                    json={"faces": [face_b64]},
-                    timeout=120,
-                )
-                resp.raise_for_status()
-                result = resp.json()
+                result = get_face_embeddings([face_b64])
                 embeddings = result.get("embeddings", [])
                 
                 if embeddings and embeddings[0]:

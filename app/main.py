@@ -9,10 +9,23 @@ all routers.  Import the ``app`` object from here when running with uvicorn:
     uvicorn app.main:app --host 0.0.0.0 --port 5002
 """
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import analyze, faces
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+# Uvicorn only configures its own loggers — INFO messages from the app package
+# would be silently dropped. Route everything (INFO+) to stderr so that IIS
+# HttpPlatformHandler captures it in python_logs.log (stdoutLogEnabled).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 # ---------------------------------------------------------------------------
 # Application

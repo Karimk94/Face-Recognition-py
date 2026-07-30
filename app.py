@@ -23,7 +23,7 @@ from app.main import app  # noqa: F401, E402
 if __name__ == "__main__":
     port = int(os.environ.get("HTTP_PLATFORM_PORT", 5002))
     print(f"Starting Face Recognition API (FastAPI) on port {port}...")
-    print(f"  Dataiku Model API URL: {os.environ.get('DATAIKU_MODEL_API_URL', 'http://localhost:5003')}")
+    print(f"  Dataiku Model API URL: {os.environ.get('DATAIKU_MODEL_API_URL', 'https://rtauevaidss1.rtatestdom.local:13000')}")
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",

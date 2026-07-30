@@ -21,7 +21,7 @@ from PIL import Image
 from pydantic import BaseModel
 
 from app.database import collection
-from app.services.dataiku import call_dataiku
+from app.services.dataiku import get_face_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ async def api_add_face(body: AddFaceRequest) -> Any:
         face_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
         try:
-            response = call_dataiku("/get_embeddings", {"faces": [face_b64]})
+            response = get_face_embeddings([face_b64])
             embeddings = response.get("embeddings", [])
 
             if embeddings and embeddings[0]:
@@ -100,7 +100,7 @@ async def api_add_face(body: AddFaceRequest) -> Any:
 async def api_recognize_faces(body: RecognizeFacesRequest) -> Any:
     """Recognise pre-cropped faces supplied as base64 strings."""
     try:
-        response = call_dataiku("/get_embeddings", {"faces": body.faces})
+        response = get_face_embeddings(body.faces)
         embeddings = response.get("embeddings", [])
 
         results = []

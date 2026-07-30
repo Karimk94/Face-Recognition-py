@@ -20,7 +20,7 @@ import logging
 from PIL import Image, ImageDraw, ImageFont
 
 from app.database import collection
-from app.services.dataiku import call_dataiku
+from app.services.dataiku import detect_faces, get_face_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +37,17 @@ def process_image_via_dataiku(image_bytes: bytes) -> dict:
     """
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    # ---- Step 1: Detect faces via Dataiku --------------------------------
-    detection = call_dataiku("/detect_faces", {"image_b64": image_b64})
+    # ---- Step 1: Detect faces via the Model API --------------------------------
+    detection = detect_faces(image_b64)
     detected_faces = detection.get("faces", [])
+
+    # Debug: surface the raw Model API response in the logs so deployment
+    # issues (schema mismatch, empty detections) are easy to diagnose.
+    logger.info(
+        "detect_faces returned %d face(s). Raw response (truncated): %s",
+        len(detected_faces) if isinstance(detected_faces, list) else "N/A",
+        str(detection)[:500],
+    )
 
     image = Image.open(io.BytesIO(image_bytes))
     if image.mode != "RGB":
@@ -70,7 +78,7 @@ def process_image_via_dataiku(image_bytes: bytes) -> dict:
     recognized: list[dict] = []
     if crops_b64:
         try:
-            response = call_dataiku("/get_embeddings", {"faces": crops_b64})
+            response = get_face_embeddings(crops_b64)
             embeddings = response.get("embeddings", [])
 
             for emb in embeddings:
