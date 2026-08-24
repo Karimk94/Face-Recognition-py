@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from app.database import collection
 from app.services.dataiku import get_face_embeddings
+from app.services.translator import translate_to_english
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,8 @@ async def api_add_face(body: AddFaceRequest) -> Any:
 
     1. Crop the face from the original image using the provided location.
     2. Send the crop to Dataiku to compute the embedding.
-    3. Store the embedding in ChromaDB.
+    3. Normalise the name to English (translate if Arabic was supplied).
+    4. Store the embedding in ChromaDB.
     """
     try:
         image_bytes = base64.b64decode(body.original_image_b64)
@@ -75,10 +77,30 @@ async def api_add_face(body: AddFaceRequest) -> Any:
             embeddings = response.get("embeddings", [])
 
             if embeddings and embeddings[0]:
+                # Normalise the name: if the caller sent an Arabic name (UI in
+                # Arabic mode) translate it to English so ChromaDB always stores
+                # a consistent English key.  Fall back to the original if the
+                # translation service is unavailable.
+                name_to_store = body.name.strip()
+                if not name_to_store.isascii():
+                    logger.info(
+                        "Name '%s' appears to be Arabic; translating to English before storing.",
+                        name_to_store,
+                    )
+                    translated = translate_to_english(name_to_store)
+                    if translated:
+                        logger.info("Translated '%s' -> '%s'", name_to_store, translated)
+                        name_to_store = translated
+                    else:
+                        logger.warning(
+                            "Translation failed for '%s'; storing original name.",
+                            name_to_store,
+                        )
+
                 face_id = str(uuid.uuid4())
                 collection.add(
                     embeddings=[embeddings[0]],
-                    metadatas=[{"name": body.name.replace(" ", "_").lower()}],
+                    metadatas=[{"name": name_to_store.replace(" ", "_").lower()}],
                     ids=[face_id],
                 )
             else:

@@ -33,6 +33,8 @@ POST /public/api/v1/edms-fr-test/get_faces_bbox_and_embeddings/run
 """
 
 import logging
+import time
+from typing import Optional
 
 import requests as http_client
 from app.config import settings
@@ -63,28 +65,132 @@ _BATCH_SIZE = 5
 # Low-level helpers
 # ---------------------------------------------------------------------------
 
-def _post(endpoint: str, json_data: dict) -> dict:
+def _post(endpoint: str, json_data: dict, max_retries: Optional[int] = None) -> dict:
     """POST JSON to the Model API and return the parsed response.
 
     Args:
         endpoint: Full path relative to the base URL.
         json_data: Payload to send as JSON.
+        max_retries: Maximum number of retry attempts for transient failures.
+                     Defaults to settings.DATAIKU_MAX_RETRIES.
 
     Returns:
         Parsed JSON response body as a dict (envelope still wrapped).
 
     Raises:
-        requests.HTTPError: If the upstream API returns a non-2xx status.
+        requests.HTTPError: If the upstream API returns a non-2xx status after all retries.
     """
+    if max_retries is None:
+        max_retries = settings.DATAIKU_MAX_RETRIES
+    
     url = f"{settings.DATAIKU_API_URL.rstrip('/')}{endpoint}"
-    response = http_client.post(
-        url,
-        json=json_data,
-        timeout=settings.REQUEST_TIMEOUT,
-        verify=settings.VERIFY_SSL,
-    )
-    response.raise_for_status()
-    return response.json()
+    last_exception: Optional[Exception] = None
+    delay = settings.DATAIKU_RETRY_DELAY
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = http_client.post(
+                url,
+                json=json_data,
+                timeout=settings.REQUEST_TIMEOUT,
+                verify=settings.VERIFY_SSL,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except http_client.HTTPError as exc:
+            last_exception = exc
+            status_code = exc.response.status_code if exc.response else "N/A"
+            
+            # Try to capture response body for debugging
+            response_body = "Unable to read response body"
+            try:
+                response_body = exc.response.text[:1000] if exc.response else "No response"
+            except Exception:
+                pass
+
+            # Retry on 5xx server errors (transient failures)
+            if isinstance(status_code, int) and 500 <= status_code < 600:
+                if attempt < max_retries:
+                    logger.warning(
+                        "API request failed with %s (attempt %d/%d). Retrying in %.1fs. "
+                        "URL: %s, Response: %s",
+                        status_code,
+                        attempt + 1,
+                        max_retries + 1,
+                        delay,
+                        endpoint,
+                        response_body,
+                    )
+                    time.sleep(delay)
+                    delay *= settings.DATAIKU_RETRY_BACKOFF
+                    continue
+                else:
+                    logger.error(
+                        "API request failed after %d attempts. Status: %s, URL: %s, Response: %s",
+                        max_retries + 1,
+                        status_code,
+                        endpoint,
+                        response_body,
+                    )
+            # For 4xx client errors, don't retry - log and re-raise immediately
+            elif isinstance(status_code, int) and 400 <= status_code < 500:
+                logger.error(
+                    "Client error %s for API request. URL: %s, Response: %s",
+                    status_code,
+                    endpoint,
+                    response_body,
+                )
+            raise
+
+        except http_client.Timeout as exc:
+            last_exception = exc
+            if attempt < max_retries:
+                logger.warning(
+                    "API request timed out (attempt %d/%d). Retrying in %.1fs. URL: %s",
+                    attempt + 1,
+                    max_retries + 1,
+                    delay,
+                    endpoint,
+                )
+                time.sleep(delay)
+                delay *= settings.DATAIKU_RETRY_BACKOFF
+                continue
+            else:
+                logger.error(
+                    "API request timed out after %d attempts. URL: %s",
+                    max_retries + 1,
+                    endpoint,
+                )
+            raise
+
+        except http_client.ConnectionError as exc:
+            last_exception = exc
+            if attempt < max_retries:
+                logger.warning(
+                    "Connection error (attempt %d/%d). Retrying in %.1fs. URL: %s, Error: %s",
+                    attempt + 1,
+                    max_retries + 1,
+                    delay,
+                    endpoint,
+                    str(exc),
+                )
+                time.sleep(delay)
+                delay *= settings.DATAIKU_RETRY_BACKOFF
+                continue
+            else:
+                logger.error(
+                    "Connection error after %d attempts. URL: %s, Error: %s",
+                    max_retries + 1,
+                    endpoint,
+                    str(exc),
+                )
+            raise
+
+    # Should not reach here, but raise the last exception if we do
+    if last_exception:
+        raise last_exception
+    raise RuntimeError("Unexpected state in _post retry logic")
 
 
 def _unwrap_envelope(body):
@@ -177,14 +283,42 @@ def get_face_embeddings(images_b64: list[str]) -> dict:
     Returns:
         ``{"embeddings": [...]}`` — one entry per input image, in the same
         order (``None`` where no face/vector could be computed).
+
+    Raises:
+        requests.HTTPError: If the API fails after all retry attempts.
     """
     embeddings: list = []
-    for start in range(0, len(images_b64), _BATCH_SIZE):
+    total_images = len(images_b64)
+    
+    for start in range(0, total_images, _BATCH_SIZE):
         batch = images_b64[start:start + _BATCH_SIZE]
-        payload = _unwrap_envelope(
-            _post(ENDPOINT_GET_FACE_EMBEDDING, {"images_b64": batch})
+        batch_num = (start // _BATCH_SIZE) + 1
+        total_batches = (total_images + _BATCH_SIZE - 1) // _BATCH_SIZE
+        
+        logger.debug(
+            "Processing embedding batch %d/%d (%d images)",
+            batch_num,
+            total_batches,
+            len(batch),
         )
-        embeddings.extend(_normalize_embeddings_payload(payload))
+        
+        try:
+            payload = _unwrap_envelope(
+                _post(ENDPOINT_GET_FACE_EMBEDDING, {"images_b64": batch})
+            )
+            batch_embeddings = _normalize_embeddings_payload(payload)
+            embeddings.extend(batch_embeddings)
+        except Exception as exc:
+            logger.error(
+                "Failed to get embeddings for batch %d/%d (%d images): %s",
+                batch_num,
+                total_batches,
+                len(batch),
+                exc,
+            )
+            # Re-raise to let the caller handle the failure
+            raise
+
     return {"embeddings": embeddings}
 
 

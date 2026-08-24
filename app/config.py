@@ -32,5 +32,13 @@ class Settings:
         os.path.dirname(os.path.dirname(__file__)), "chroma_db"
     )
 
+    # Retry configuration for Dataiku API calls
+    DATAIKU_MAX_RETRIES: int = int(os.environ.get("DATAIKU_MAX_RETRIES", 3))
+    DATAIKU_RETRY_DELAY: float = float(os.environ.get("DATAIKU_RETRY_DELAY_SECONDS", 1.0))
+    DATAIKU_RETRY_BACKOFF: float = float(os.environ.get("DATAIKU_RETRY_BACKOFF_MULTIPLIER", 2.0))
+
+    # Translator / Rephraser service (used to normalise Arabic face names → English)
+    TRANSLATOR_API_URL: str = os.environ.get("TRANSLATOR_REPHRASER_API_URL", "")
+
 
 settings = Settings()
