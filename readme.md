@@ -220,7 +220,13 @@ sequenceDiagram
 
 ## 5. Dataiku Model API Integration & Resilience
 
-The gateway relies on the enterprise **Dataiku Model API** (`https://rtauevaidss1.rtatestdom.local:13000`) for model computation. The integration logic is housed in [app/services/dataiku.py](file:///d:/projects/new%20EDMS%20py/Face%20Recognition%20py/app/services/dataiku.py).
+The gateway relies on the enterprise **Dataiku Model API** (`https://rtauevaidss1.rtatestdom.local:13000` or local port `5009`) for model computation. The integration logic is housed in [app/services/dataiku.py](file:///d:/projects/new%20EDMS%20py/Face%20Recognition%20py/app/services/dataiku.py).
+
+### Role as the ML Perception Middleware between this Gateway and GovAI LLM
+`Dataiku Model API` acts as the **computational bridge and ML perception middleware** separating this application gateway (`Face Recognition py`) from the cognitive reasoning layer (**GovAI LLM**):
+1. **Low-Level Perception vs. High-Level Cognition**: `Dataiku Model API` processes heavy convolutional neural network inference (RetinaFace and VGG-Face), converting raw pixel data into spatial coordinates and 4096-dimensional mathematical vectors.
+2. **Standardized Input for GovAI LLM**: The resulting embeddings allow this gateway to look up identities in ChromaDB; any bilingual ambiguities or Arabic names (e.g., `"أحمد بهروزيان"`) are then passed to **GovAI LLM** for transliteration, diacritic removal, and standardized entity resolution.
+3. **Hardware & Process Isolation**: Running deep learning models in the Dataiku middleware protects both the FastAPI gateway and GovAI LLM clients from memory spikes, CUDA/GPU allocation locks, and slow worker startups.
 
 ### Endpoints Invoked on Dataiku
 - `POST /public/api/v1/edms-fr-test/detect_faces/run`
