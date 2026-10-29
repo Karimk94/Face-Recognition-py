@@ -111,7 +111,7 @@ By decoupling image pre-processing from deep learning inference, the gateway ach
 ## 3. GovAI LLM Integration
 
 ### Why GovAI LLM is Required
-In bilingual government environments, users and administrative systems frequently enroll personnel while operating in Arabic mode (e.g., submitting `"أحمد بهروزيان"` instead of `"Ahmed Bahrozyan"`). Storing mixed Arabic and English identity keys creates:
+In bilingual government environments, users and administrative systems frequently enroll personnel while operating in Arabic mode (e.g., submitting `"جون دو"` instead of `"John Doe"`). Storing mixed Arabic and English identity keys creates:
 1. **Database Fragmentation**: The same individual would exist under two separate identities in ChromaDB.
 2. **Metadata Inconsistencies**: Disconnected search filters across the Smart EDMS platform.
 3. **Display Clutter**: Inconsistent label rendering on visual document thumbnails.
@@ -129,16 +129,16 @@ sequenceDiagram
     participant GovAI as GovAI LLM (llmapi.govai.ae)
     participant Chroma as ChromaDB ("faces")
 
-    Admin->>API: POST /api/add_face {name: "أحمد بهروزيان", ...}
+    Admin->>API: POST /api/add_face {name: "جون دو", ...}
     Note over API: Check if name is ASCII.<br/>isascii() is False -> Needs translation!
-    API->>Trans: POST /generate {text: "أحمد بهروزيان", task: "translate"}
+    API->>Trans: POST /generate {text: "جون دو", task: "translate"}
     Trans->>GovAI: POST /chat/completions (System Prompt: Zero Tashkeel, Strict Translation)
-    GovAI-->>Trans: SSE Stream: "Ahmed Bahrozyan"
-    Trans-->>API: "Ahmed Bahrozyan"
-    Note over API: Normalize slug: "ahmed_bahrozyan"
-    API->>Chroma: collection.add(embeddings=[...], metadatas=[{"name": "ahmed_bahrozyan"}])
+    GovAI-->>Trans: SSE Stream: "John Doe"
+    Trans-->>API: "John Doe"
+    Note over API: Normalize slug: "john_doe"
+    API->>Chroma: collection.add(embeddings=[...], metadatas=[{"name": "john_doe"}])
     Chroma-->>API: Stored successfully
-    API-->>Admin: {"message": "Saved 'أحمد بهروزيان' successfully."}
+    API-->>Admin: {"message": "Saved 'جون دو' successfully."}
 ```
 
 ### Implementation Details in Code
@@ -179,15 +179,15 @@ sequenceDiagram
     FR->>DK: POST /get_face_embedding/run (Batch of 5)
     DK-->>FR: [[4096-dim vector], ...]
     Note over FR: Query ChromaDB & Draw Annotations
-    FR-->>EDMS: {faces: [{name: "ahmed_bahrozyan", distance: 0.28}], processed_image: "..."}
-    Note over EDMS: Compile VIPS metadata: "Ahmed Bahrozyan"
-    EDMS->>DB: UPDATE TAGGING_QUEUE SET face=1, VIPS='Ahmed Bahrozyan'
+    FR-->>EDMS: {faces: [{name: "john_doe", distance: 0.28}], processed_image: "..."}
+    Note over EDMS: Compile VIPS metadata: "John Doe"
+    EDMS->>DB: UPDATE TAGGING_QUEUE SET face=1, VIPS='John Doe'
 
     Note over EDMS: Pipeline 2: Video Summarizer Crops
     EDMS->>FR: POST /api/recognize_faces {faces: ["<b64_crop_1>", ...]}
     FR->>DK: POST /get_face_embedding/run
-    FR-->>EDMS: {faces: [{index: 1, name: "mattar_al_tayer", distance: 0.19}]}
-    EDMS->>DB: UPDATE TAGGING_QUEUE SET face=1, VIPS='Mattar Al Tayer'
+    FR-->>EDMS: {faces: [{index: 1, name: "jane_doe", distance: 0.19}]}
+    EDMS->>DB: UPDATE TAGGING_QUEUE SET face=1, VIPS='Jane Doe'
 ```
 
 ### Detailed Pipeline Breakdown in `..\EDMS API`
@@ -225,7 +225,7 @@ The gateway relies on the enterprise **Dataiku Model API** (`https://rtauevaidss
 ### Role as the ML Perception Middleware between this Gateway and GovAI LLM
 `Dataiku Model API` acts as the **computational bridge and ML perception middleware** separating this application gateway (`Face Recognition py`) from the cognitive reasoning layer (**GovAI LLM**):
 1. **Low-Level Perception vs. High-Level Cognition**: `Dataiku Model API` processes heavy convolutional neural network inference (RetinaFace and VGG-Face), converting raw pixel data into spatial coordinates and 4096-dimensional mathematical vectors.
-2. **Standardized Input for GovAI LLM**: The resulting embeddings allow this gateway to look up identities in ChromaDB; any bilingual ambiguities or Arabic names (e.g., `"أحمد بهروزيان"`) are then passed to **GovAI LLM** for transliteration, diacritic removal, and standardized entity resolution.
+2. **Standardized Input for GovAI LLM**: The resulting embeddings allow this gateway to look up identities in ChromaDB; any bilingual ambiguities or Arabic names (e.g., `"جون دو"`) are then passed to **GovAI LLM** for transliteration, diacritic removal, and standardized entity resolution.
 3. **Hardware & Process Isolation**: Running deep learning models in the Dataiku middleware protects both the FastAPI gateway and GovAI LLM clients from memory spikes, CUDA/GPU allocation locks, and slow worker startups.
 
 ### Endpoints Invoked on Dataiku
@@ -277,7 +277,7 @@ The application manages facial feature embeddings in a persistent, on-disk **Chr
   "id": "e8d91f2a-5b12-4c3e-9081-34f71a92cd41",
   "embedding": [0.0124, -0.0481, 0.0921, "... (4096 floats) ..."],
   "metadata": {
-    "name": "ahmed_bahrozyan"
+    "name": "john_doe"
   }
 }
 ```
@@ -314,7 +314,7 @@ Analyzes a full photograph, detects all faces, matches them with known VIPs, and
   "faces": [
     {
       "index": 1,
-      "name": "ahmed_bahrozyan",
+      "name": "john_doe",
       "location": [1246, 4384, 2263, 3646],
       "distance": 0.2841,
       "thumbnail_b64": "/9j/4AAQSkZJRgABAQAAAQ..."
@@ -347,7 +347,7 @@ Crops a specific face from an image, normalizes the identity name using GovAI LL
 #### Request Payload
 ```json
 {
-  "name": "أحمد بهروزيان",
+  "name": "جون دو",
   "location": [120, 380, 420, 160],
   "original_image_b64": "/9j/4AAQSkZJRgABAQAAAQ..."
 }
@@ -357,7 +357,7 @@ Crops a specific face from an image, normalizes the identity name using GovAI LL
 #### Response (`200 OK`)
 ```json
 {
-  "message": "Saved 'أحمد بهروزيان' successfully."
+  "message": "Saved 'جون دو' successfully."
 }
 ```
 
@@ -385,7 +385,7 @@ Used by `..\EDMS API` during video frame analysis to recognize multiple pre-crop
   "faces": [
     {
       "index": 1,
-      "name": "mattar_al_tayer",
+      "name": "jane_doe",
       "distance": 0.2104
     },
     {
@@ -408,7 +408,7 @@ Removes all vector embeddings associated with a given individual.
 #### Request Payload
 ```json
 {
-  "name": "Ahmed Bahrozyan"
+  "name": "John Doe"
 }
 ```
 
@@ -416,7 +416,7 @@ Removes all vector embeddings associated with a given individual.
 ```json
 {
   "success": true,
-  "message": "Deleted 'Ahmed Bahrozyan' successfully."
+  "message": "Deleted 'John Doe' successfully."
 }
 ```
 
@@ -431,9 +431,9 @@ Returns a dictionary of all enrolled persons and the number of sample vectors in
 ```json
 {
   "faces": {
-    "ahmed_bahrozyan": 4,
-    "mattar_al_tayer": 6,
-    "abdulla_al_ali": 2
+    "john_doe": 4,
+    "jane_doe": 6,
+    "alex_smith": 2
   }
 }
 ```
@@ -480,10 +480,10 @@ d:\projects\new EDMS py\Face Recognition py\
 │
 ├── chroma_db/                       # Embedded persistent ChromaDB vector storage (L2 space)
 ├── known_faces_db/                  # Local directory of known faces organized by name folders
-│   ├── ahmed_bahrozyan/
+│   ├── john_doe/
 │   │   ├── face_1.jpg
 │   │   └── face_2.jpg
-│   └── mattar_al_tayer/
+│   └── jane_doe/
 │       └── face_1.jpg
 │
 ├── graphify-out/                    # Knowledge graph documentation & topology analysis
