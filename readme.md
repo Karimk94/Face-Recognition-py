@@ -82,7 +82,7 @@ By decoupling image pre-processing from deep learning inference, the gateway ach
                     ▼                                    ▼
        ┌───────────────────────────┐        ┌─────────────────────────────────────────────────────────┐
        │   Translator/Rephraser    │        │                   Dataiku Model API                     │
-       │     (Port 5010)           │        │         rtauevaidss1.rtatestdom.local:13000             │
+       │     (Port 5010)           │        │         dataiku-model-api.example.com:13000             │
        └────────────┬──────────────┘        └────────────────────────────┬────────────────────────────┘
                     │                                                    │
                     │ OpenAI Chat Protocol                               │ RetinaFace & VGG-Face
@@ -220,7 +220,7 @@ sequenceDiagram
 
 ## 5. Dataiku Model API Integration & Resilience
 
-The gateway relies on the enterprise **Dataiku Model API** (`https://rtauevaidss1.rtatestdom.local:13000` or local port `5009`) for model computation. The integration logic is housed in [app/services/dataiku.py](file:///d:/projects/new%20EDMS%20py/Face%20Recognition%20py/app/services/dataiku.py).
+The gateway relies on the enterprise **Dataiku Model API** (`https://dataiku-model-api.example.com:13000` or local port `5009`) for model computation. The integration logic is housed in [app/services/dataiku.py](file:///d:/projects/new%20EDMS%20py/Face%20Recognition%20py/app/services/dataiku.py).
 
 ### Role as the ML Perception Middleware between this Gateway and GovAI LLM
 `Dataiku Model API` acts as the **computational bridge and ML perception middleware** separating this application gateway (`Face Recognition py`) from the cognitive reasoning layer (**GovAI LLM**):
@@ -521,7 +521,7 @@ Settings are centrally defined in [app/config.py](file:///d:/projects/new%20EDMS
 | Variable | Default Value | Description |
 |:---|:---|:---|
 | `HTTP_PLATFORM_PORT` | `5002` | Port on which FastAPI / Uvicorn listens (injected automatically by IIS). |
-| `DATAIKU_MODEL_API_URL` | `https://rtauevaidss1.rtatestdom.local:13000` | Base URL of the enterprise Dataiku Model API. |
+| `DATAIKU_MODEL_API_URL` | `https://dataiku-model-api.example.com:13000` | Base URL of the enterprise Dataiku Model API. |
 | `DATAIKU_VERIFY_SSL` | `false` | Set to `false` for internal domains using self-signed or enterprise CA certs. |
 | `DATAIKU_TIMEOUT_SECONDS` | `300` | HTTP request timeout for ML detection and embedding operations. |
 | `DATAIKU_MAX_RETRIES` | `3` | Maximum retry attempts for transient 5xx errors or network timeouts. |

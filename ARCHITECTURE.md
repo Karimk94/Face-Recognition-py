@@ -11,7 +11,7 @@ locally. All ML inference is delegated to the Dataiku Model API via HTTP.
 ```mermaid
 graph LR
     FE["Frontend<br/>(Smart EDMS POC)"] -->|"same endpoints<br/>as before"| TH["Thumbnail API<br/>(This Server · port 5002)"]
-    TH -->|"Base64 images<br/>in JSON"| DK["Model API<br/>(Dataiku · rtauevaidss1.rtatestdom.local:13000)"]
+    TH -->|"Base64 images<br/>in JSON"| DK["Model API<br/>(Dataiku · dataiku-model-api.example.com:13000)"]
     
     subgraph "This Server"
         TH --- DB["known_faces_db/<br/>(face images on disk)"]
@@ -71,7 +71,7 @@ Same internal flow as above, but reads raw bytes from the request body.
 Enroll a new face. Accepts JSON:
 ```json
 {
-    "name": "Ahmed Bahrozyan",
+    "name": "John Doe",
     "location": [top, right, bottom, left],
     "original_image_b64": "<base64 string>"
 }
@@ -189,10 +189,10 @@ Face Recognition py/
 ├── app.py                  # Flask API — proxies to Dataiku, handles images
 ├── migrate_embeddings.py   # One-time script to seed Dataiku with existing faces
 ├── known_faces_db/         # Face images (organized by person name)
-│   ├── ahmed_bahrozyan/
+│   ├── john_doe/
 │   │   ├── face_1.jpg
 │   │   └── face_2.jpg
-│   ├── mattar_al_tayer/
+│   ├── jane_doe/
 │   │   └── face_1.jpg
 │   └── ...
 ├── requirements.txt        # Lightweight: Flask + PIL + requests only
@@ -208,7 +208,7 @@ Face Recognition py/
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HTTP_PLATFORM_PORT` | `5002` | Port to serve on |
-| `DATAIKU_MODEL_API_URL` | `https://rtauevaidss1.rtatestdom.local:13000` | URL of the Dataiku Model API |
+| `DATAIKU_MODEL_API_URL` | `https://dataiku-model-api.example.com:13000` | URL of the Dataiku Model API |
 | `DATAIKU_VERIFY_SSL` | `true` (`false` in `.env`/`web.config`) | Set to `false` for the internal self-signed cert |
 | `KNOWN_FACES_PATH` | `./known_faces_db` | Directory for face image storage |
 | `DATAIKU_TIMEOUT_SECONDS` | `300` | Timeout for Dataiku API calls (seconds) |
@@ -226,7 +226,7 @@ pip install -r requirements.txt
 ### 2. Configure Dataiku URL
 
 ```bash
-set DATAIKU_MODEL_API_URL=https://rtauevaidss1.rtatestdom.local:13000
+set DATAIKU_MODEL_API_URL=https://dataiku-model-api.example.com:13000
 ```
 
 ### 3. Run One-Time Embedding Migration
