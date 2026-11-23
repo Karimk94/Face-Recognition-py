@@ -5,10 +5,10 @@ Core image-processing pipeline.
 
 Steps
 -----
-1. Forward the raw image to Dataiku for face detection (bounding boxes only).
+1. Forward the raw image to Dataiku for combined detection + embedding
+   (get_faces_bbox_and_embeddings endpoint — single call, no crop upload).
 2. Crop each detected face locally with PIL and generate ``thumbnail_b64``.
-3. Send cropped thumbnails to Dataiku to compute embeddings, then query
-   ChromaDB for recognition.
+3. Query ChromaDB with the returned embeddings for recognition.
 4. Draw bounding boxes + labels on the original image.
 5. Return the same JSON structure the frontend expects.
 """
@@ -20,7 +20,8 @@ import logging
 from PIL import Image, ImageDraw, ImageFont
 
 from app.database import collection
-from app.services.dataiku import detect_faces, get_face_embeddings
+from app.services.dataiku import get_faces_bbox_and_embeddings
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +38,24 @@ def process_image_via_dataiku(image_bytes: bytes) -> dict:
     """
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    # ---- Step 1: Detect faces via the Model API --------------------------------
-    detection = detect_faces(image_b64)
-    detected_faces = detection.get("faces", [])
+    # ---- Step 1: Detect faces AND get embeddings in a single Dataiku call ----
+    # Uses /get_faces_bbox_and_embeddings/run which accepts the full image and
+    # returns both bounding boxes and 4096-dim VGG-Face vectors together.
+    # This avoids the separate /get_face_embedding/run call that crops cause
+    # issues with.
+    try:
+        payload = get_faces_bbox_and_embeddings(image_b64)
+    except Exception as exc:
+        logger.error("get_faces_bbox_and_embeddings failed: %s", exc, exc_info=True)
+        payload = []
 
-    # Debug: surface the raw Model API response in the logs so deployment
-    # issues (schema mismatch, empty detections) are easy to diagnose.
+    # Normalise payload: expect a list of {bbox, confidence, embedding}
+    if not isinstance(payload, list):
+        payload = []
+
     logger.info(
-        "detect_faces returned %d face(s). Raw response (truncated): %s",
-        len(detected_faces) if isinstance(detected_faces, list) else "N/A",
-        str(detection)[:500],
+        "get_faces_bbox_and_embeddings returned %d face(s).",
+        len(payload),
     )
 
     image = Image.open(io.BytesIO(image_bytes))
@@ -56,7 +65,7 @@ def process_image_via_dataiku(image_bytes: bytes) -> dict:
     results: dict = {"faces": []}
 
     # No faces detected — return the image untouched
-    if not detected_faces:
+    if not payload:
         buf = io.BytesIO()
         image.save(buf, format="JPEG")
         results["processed_image"] = base64.b64encode(buf.getvalue()).decode("utf-8")
@@ -65,8 +74,23 @@ def process_image_via_dataiku(image_bytes: bytes) -> dict:
 
     # ---- Step 2: Crop faces locally and generate thumbnails ---------------
     crops_b64: list[str] = []
-    for face in detected_faces:
-        x, y, w, h = face["x"], face["y"], face["w"], face["h"]
+    detected_faces = []
+    embeddings = []
+
+    for item in payload:
+        bbox = item.get("bbox", {})
+        x = int(bbox.get("x", 0))
+        y = int(bbox.get("y", 0))
+        w = int(bbox.get("w", 0))
+        h = int(bbox.get("h", 0))
+        emb = item.get("embedding")
+
+        detected_faces.append({
+            "x": x, "y": y, "w": w, "h": h,
+            "confidence": item.get("confidence", 0),
+        })
+        embeddings.append(emb)
+
         cropped = image.crop((x, y, x + w, y + h))
         if cropped.mode != "RGB":
             cropped = cropped.convert("RGB")
@@ -74,23 +98,18 @@ def process_image_via_dataiku(image_bytes: bytes) -> dict:
         cropped.save(buf, format="JPEG")
         crops_b64.append(base64.b64encode(buf.getvalue()).decode("utf-8"))
 
-    # ---- Step 3: Compute embeddings & recognise via ChromaDB --------------
+    # ---- Step 3: Query ChromaDB with the embeddings -----------------------
     recognized: list[dict] = []
-    if crops_b64:
-        try:
-            response = get_face_embeddings(crops_b64)
-            embeddings = response.get("embeddings", [])
-
-            for emb in embeddings:
-                if emb is None:
-                    recognized.append({"name": "Unknown", "distance": None})
-                    continue
-
+    if collection.count() > 0:
+        for emb in embeddings:
+            if emb is None:
+                recognized.append({"name": "Unknown", "distance": None})
+                continue
+            try:
                 query_results = collection.query(
                     query_embeddings=[emb],
                     n_results=1,
                 )
-
                 if (
                     query_results
                     and query_results["ids"]
@@ -99,12 +118,21 @@ def process_image_via_dataiku(image_bytes: bytes) -> dict:
                     distance = query_results["distances"][0][0]
                     metadata = query_results["metadatas"][0][0]
                     name = metadata.get("name", "Unknown")
-                    recognized.append({"name": name, "distance": distance})
+                    # Only accept the match if it is within the threshold.
+                    # Distances above the threshold are too dissimilar → Unknown.
+                    if distance <= settings.FACE_MATCH_THRESHOLD:
+                        recognized.append({"name": name, "distance": distance})
+                    else:
+                        logger.debug(
+                            "Face rejected: best match '%s' distance %.4f > threshold %.4f",
+                            name, distance, settings.FACE_MATCH_THRESHOLD,
+                        )
+                        recognized.append({"name": "Unknown", "distance": distance})
                 else:
                     recognized.append({"name": "Unknown", "distance": None})
-
-        except Exception as exc:
-            logger.error("Recognition step failed: %s", exc, exc_info=True)
+            except Exception as exc:
+                logger.error("ChromaDB query failed: %s", exc, exc_info=True)
+                recognized.append({"name": "Unknown", "distance": None})
 
     # ---- Step 4: Draw bounding boxes and merge results --------------------
     draw_image = image.copy()

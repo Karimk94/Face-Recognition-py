@@ -37,8 +37,16 @@ class Settings:
     DATAIKU_RETRY_DELAY: float = float(os.environ.get("DATAIKU_RETRY_DELAY_SECONDS", 1.0))
     DATAIKU_RETRY_BACKOFF: float = float(os.environ.get("DATAIKU_RETRY_BACKOFF_MULTIPLIER", 2.0))
 
-    # Translator / Rephraser service (used to normalise Arabic face names → English)
-    TRANSLATOR_API_URL: str = os.environ.get("TRANSLATOR_REPHRASER_API_URL", "")
+    # Face recognition distance threshold (VGG-Face + L2 distance).
+    # Matches with a distance above this value are treated as "Unknown".
+    # DeepFace default is 0.86 for VGG-Face L2. Lower = stricter matching.
+    # Configurable via FACE_MATCH_THRESHOLD env var.
+    FACE_MATCH_THRESHOLD: float = float(os.environ.get("FACE_MATCH_THRESHOLD", 0.86))
+
+    # Translator / Rephraser — now calls GovAI directly (no microservice dependency)
+    GOVAI_API_URL: str = os.environ.get("GOVAI_API_URL", "https://llmapi.govai.ae/chat/completions")
+    GOVAI_API_KEY: str = os.environ.get("GOVAI_API_KEY", "")
+    GOVAI_TEXT_MODEL: str = os.environ.get("GOVAI_TEXT_MODEL", "qwen3-235b-fp16")
 
 
 settings = Settings()

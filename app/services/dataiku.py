@@ -309,14 +309,19 @@ def get_face_embeddings(images_b64: list[str]) -> dict:
             batch_embeddings = _normalize_embeddings_payload(payload)
             embeddings.extend(batch_embeddings)
         except Exception as exc:
+            # Extract Dataiku's error response body
+            err_body = ""
+            if hasattr(exc, "response") and exc.response is not None:
+                err_body = f" | Dataiku response: {exc.response.text[:500]}"
+            
             logger.error(
-                "Failed to get embeddings for batch %d/%d (%d images): %s",
+                "Failed to get embeddings for batch %d/%d (%d images): %s%s",
                 batch_num,
                 total_batches,
                 len(batch),
                 exc,
+                err_body,
             )
-            # Re-raise to let the caller handle the failure
             raise
 
     return {"embeddings": embeddings}
